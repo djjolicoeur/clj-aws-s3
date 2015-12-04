@@ -216,27 +216,27 @@
       (.setAccessControlList req (create-acl permissions)))
     (.putObject (s3-client cred) req)))
 
-(defn- initiate-multipart-upload
-  [cred bucket key] 
-  (.getUploadId (.initiateMultipartUpload 
-                  (s3-client cred) 
+(defn initiate-multipart-upload
+  [cred bucket key]
+  (.getUploadId (.initiateMultipartUpload
+                  (s3-client cred)
                   (InitiateMultipartUploadRequest. bucket key))))
 
-(defn- abort-multipart-upload
-  [{cred :cred bucket :bucket key :key upload-id :upload-id}] 
-  (.abortMultipartUpload 
-    (s3-client cred) 
+(defn abort-multipart-upload
+  [{cred :cred bucket :bucket key :key upload-id :upload-id}]
+  (.abortMultipartUpload
+    (s3-client cred)
     (AbortMultipartUploadRequest. bucket key upload-id)))
 
-(defn- complete-multipart-upload
-  [{cred :cred bucket :bucket key :key upload-id :upload-id e-tags :e-tags}] 
+(defn complete-multipart-upload
+  [{cred :cred bucket :bucket key :key upload-id :upload-id e-tags :e-tags}]
   (.completeMultipartUpload
     (s3-client cred)
     (CompleteMultipartUploadRequest. bucket key upload-id e-tags)))
 
 (defn- upload-part
   [{cred :cred bucket :bucket key :key upload-id :upload-id
-    part-size :part-size offset :offset ^java.io.File file :file}] 
+    part-size :part-size offset :offset ^java.io.File file :file}]
   (.getPartETag
    (.uploadPart
     (s3-client cred)
@@ -249,10 +249,25 @@
       (.setPartSize ^long (min part-size (- (.length file) offset)))
       (.setFile file)))))
 
+(defn upload-input-stream-part
+  [{cred :cred bucket :bucket key :key upload-id :upload-id
+    part-size :part-size offset :offset file-size :file-size
+    ^java.io.InputStream input-stream :input-stream}]
+  (.getPartETag
+   (.uploadPart
+    (s3-client cred)
+    (doto (UploadPartRequest.)
+      (.setBucketName bucket)
+      (.setKey key)
+      (.setUploadId upload-id)
+      (.setPartNumber (+ 1 (/ offset part-size)))
+      (.setPartSize ^long (min part-size (- file-size offset)))
+      (.setInputStream input-stream)))))
+
 (defn put-multipart-object
   "Do a multipart upload of a file into a S3 bucket at the specified key.
-  The value must be a java.io.File object.  The entire file is uploaded 
-  or not at all.  If an exception happens at any time the upload is aborted 
+  The value must be a java.io.File object.  The entire file is uploaded
+  or not at all.  If an exception happens at any time the upload is aborted
   and the exception is rethrown. The size of the parts and the number of
   threads uploading the parts can be configured in the last argument as a
   map with the following keys:
@@ -271,8 +286,8 @@
     (try
       (complete-multipart-upload
         (assoc upload :e-tags (map #(.get ^java.util.concurrent.Future %)  (.invokeAll pool tasks))))
-      (catch Exception ex 
-        (abort-multipart-upload upload) 
+      (catch Exception ex
+        (abort-multipart-upload upload)
         (.shutdown pool)
         (throw ex))
       (finally (.shutdown pool)))))
@@ -365,6 +380,20 @@
      (to-map (.getObject (s3-client cred) bucket key)))
   ([cred ^String bucket ^String key ^String version-id]
      (to-map (.getObject (s3-client cred) (GetObjectRequest. bucket key version-id)))))
+
+
+(defn get-object-part
+  ([cred ^String bucket ^String key ^Long start ^Long end]
+   (to-map (.getObject
+            (s3-client cred)
+            (doto (GetObjectRequest. bucket key)
+              (.setRange start end)))))
+  ([cred ^String bucket ^String key ^Long start]
+   (to-map (.getObject
+            (s3-client cred)
+            (doto (GetObjectRequest. bucket key)
+              (.setRange start))))))
+
 
 (defn- map->GetObjectMetadataRequest
   "Create a ListObjectsRequest instance from a map of values."
